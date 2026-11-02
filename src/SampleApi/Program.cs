@@ -10,7 +10,7 @@ var app = builder.Build();
 var version = Assembly.GetExecutingAssembly()
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
-app.MapGet("/", () => "SampleApi is running");
+app.MapGet("/", () => "SampleApi v2");
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", version }));
 
 app.Run();
