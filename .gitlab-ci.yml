@@ -1,0 +1,91 @@
+# GitLab equivalent of .github/workflows/deploy-dotnet.yml, using the same scripts.
+# Place at the repository root when the project lives in its own GitLab repo
+# (paths below assume this sample folder is the repo root, and scripts/ is copied alongside).
+#
+# Runners (Windows, shell executor, PowerShell):
+#   tag "windows"    : any Windows build runner
+#   tag "production" : runner installed ON the production server - no credentials needed
+
+stages:
+  - build
+  - test
+  - deploy
+  - verify
+  - rollback
+
+variables:
+  # ---- Detected from source code (AI) ----
+  PROJECT_PATH: src/SampleApi/SampleApi.csproj
+  TEST_PATH: tests/SampleApi.Tests/SampleApi.Tests.csproj
+  # ---- From the ReleaseWorks form (user input) ----
+  APP_PATH: 'D:\Apps\SampleApi'
+  BACKUP_ROOT: 'D:\Backups\SampleApi'
+  APP_TYPE: service                    # none | iis | service | custom
+  APP_NAME: SampleApi
+  STOP_SCRIPT: ''
+  START_SCRIPT: ''
+  PRESERVE_FILES: 'appsettings.Production.json'
+  HEALTH_URL: 'http://localhost:5080/health'
+  AUTO_ROLLBACK: 'true'
+
+build:
+  stage: build
+  tags: [windows]
+  script:
+    - dotnet restore $env:PROJECT_PATH
+    - dotnet publish $env:PROJECT_PATH -c Release --no-restore -o publish
+  artifacts:
+    paths: [publish/]
+    expire_in: 14 days
+
+test:
+  stage: test
+  tags: [windows]
+  script:
+    - dotnet test $env:TEST_PATH -c Release --logger "junit;LogFilePath=$env:CI_PROJECT_DIR/test-results/dotnet.xml"
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/*.xml # shown in the pipeline "Tests" tab and in merge requests
+
+deploy:
+  stage: deploy
+  tags: [production]
+  needs: [build, test]
+  environment:
+    name: production
+  when: manual          # click "Deploy" on D-Day after tests pass
+  allow_failure: false  # pipeline stays "blocked" until someone deploys
+  script:
+    - >
+      .\scripts\deploy.ps1 -SourcePath "$env:CI_PROJECT_DIR\publish" -TargetPath $env:APP_PATH
+      -BackupRoot $env:BACKUP_ROOT -AppType $env:APP_TYPE -AppName $env:APP_NAME
+      -StopScript $env:STOP_SCRIPT -StartScript $env:START_SCRIPT -PreserveFiles $env:PRESERVE_FILES
+  artifacts:
+    when: always # keep BACKUP_PATH even if deploy fails halfway
+    reports:
+      dotenv: pipeline.env
+
+verify:
+  stage: verify
+  tags: [production]
+  needs: [deploy]
+  script:
+    - .\scripts\verify.ps1 -HealthUrl $env:HEALTH_URL -ExpectedContent Healthy -AppType $env:APP_TYPE -AppName $env:APP_NAME
+
+rollback:
+  stage: rollback
+  tags: [production]
+  needs:
+    - job: deploy
+      artifacts: true
+    - job: verify
+  rules:
+    - if: $AUTO_ROLLBACK == "true"
+      when: on_failure
+  script:
+    - if (-not $env:BACKUP_PATH) { Write-Host 'No backup (new app or deploy failed before backup) - nothing to roll back'; exit 0 }
+    - >
+      .\scripts\rollback.ps1 -BackupPath $env:BACKUP_PATH -TargetPath $env:APP_PATH
+      -AppType $env:APP_TYPE -AppName $env:APP_NAME -StopScript $env:STOP_SCRIPT -StartScript $env:START_SCRIPT
+    - .\scripts\verify.ps1 -HealthUrl $env:HEALTH_URL -AppType $env:APP_TYPE -AppName $env:APP_NAME
