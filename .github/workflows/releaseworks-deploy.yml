@@ -33,7 +33,7 @@ env:
   START_SCRIPT: ''
   PRESERVE_FILES: 'appsettings.Production.json'
   PRESERVE_DIRS: 'logs'
-  HEALTH_URL: 'http://localhost:5080/health'
+  HEALTH_URL: 'http://localhost:5080/salah'
 
 jobs:
   build:
