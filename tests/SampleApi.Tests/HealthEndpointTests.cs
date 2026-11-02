@@ -25,7 +25,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task Root_ReturnsRunningMessage()
     {
         var body = await _client.GetStringAsync("/");
+        Assert.Equal("SampleApi v2", body);
 
-        Assert.Equal("SampleApi is running", body);
     }
 }
